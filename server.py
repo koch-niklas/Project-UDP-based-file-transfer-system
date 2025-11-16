@@ -6,7 +6,7 @@ BUFFER_SIZE = 4096
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #create UDP socket, AF_INET = ipv4, SOCK_DGRAM: UDP socket
 server_socket.bind((SERVER_IP, SERVER_PORT)) #send all UDP traffic arriving at this ip+port to my socket
-print(f"Server listening on {SERVER_IP}:{SERVER_PORT}")
+print(f"Server 2.0 listening on {SERVER_IP}:{SERVER_PORT}")
 
 while True: #endless loop, always listening
     # Receive filename as first packet
@@ -14,11 +14,22 @@ while True: #endless loop, always listening
     filename = data.decode()
     print(f"Receiving file '{filename}'")
 
-    with open(filename, "wb") as file: #creates file with the received name. "with " automatically handles opening, closing. wb -> w means write, b means binary. seems to be necessary for windows 
+    expected_seq = 0 #used to keep track. ofc we start with 0 :)
+    with open(filename, "wb") as f:
         while True:
-            packet, _ = server_socket.recvfrom(BUFFER_SIZE) #write data into packet, we dont care about the adress
+            packet, addr = server_socket.recvfrom(BUFFER_SIZE + 20)  # we need extra space for seq number. We also have to store who sent the message in order to send the ACK back. It does not change the actual chunk as we know where it starts (at the |) and at the end, we have some empty bytes
             if packet == b"EOF": #if the EOF string is received, we stop the writing of the file
                 break
-            file.write(packet)
-
+            try:
+                header, content = packet.split(b"|", 1) #we split the packet at the delimiting "|"
+                seq_num = int(header.decode())
+            except Exception: #if either split, or the decoding of the packet fails
+                print("Malformed packet, ignoring")
+                continue
+            if seq_num == expected_seq:
+                f.write(content) #ofc we only write to the file, if we have the correct seq
+                expected_seq += 1
+            # send ACK (always ACK the last correctly received seq)
+            ack = str(expected_seq - 1).encode()
+            server_socket.sendto(ack, addr)
     print(f"File '{filename}' received successfully.")

@@ -7,6 +7,7 @@ import argparse
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 5959
 BUFFER_SIZE = 4096
+TIMEOUT = 0.5  # 500 milliseconds
 
 def GetFile():
     parser = argparse.ArgumentParser()
@@ -22,15 +23,28 @@ def main():
     filename, file_path = GetFile()
 
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #open socket at hardcoded port
+    client_socket.settimeout(TIMEOUT) #needed to break the loop below. without, we would get stuck on an infinite loop
     # Send filename first
     client_socket.sendto(filename.encode(), (SERVER_IP, SERVER_PORT))
-    # Send file content
-    with open(file_path, "rb") as file: #rb = read binary mode, f is the file object
-        while chunk := file.read(BUFFER_SIZE):  #:= does all the magic. reads bytes up to the buffer size from file and writes it into "chunk". also uses chunk as condition for the while loop. when chunk empty, we have reaad the file
-            client_socket.sendto(chunk, (SERVER_IP, SERVER_PORT)) #send the chunk to the server. each chunk is one UDP Packet
-
+    # Send file data , now more reliable
+    seq_num = 0 #used to keep track. ofc we start with 0 :)
+    with open(file_path, "rb") as f: #rb = read binary mode, f is the file object
+        while True: #repeat indefinetely until break
+            chunk = f.read(BUFFER_SIZE) #same thing as before
+            if not chunk:
+                break
+            packet = f"{seq_num}|".encode() + chunk #the new packet not only includes the chunk(raw data) but starts with the sequence number. f234 for example, followed by the | which indicates the start of the chunk
+            while True: #repeat indefinetely until the server acknowledges the receipt of the sequence packet
+                client_socket.sendto(packet, (SERVER_IP, SERVER_PORT))
+                try:
+                    ack, _ = client_socket.recvfrom(BUFFER_SIZE) #wait for acknowledgement from server. recvfrom will wait maximum TIMEOUT seconds (what set set before)
+                    if int(ack.decode()) == seq_num:
+                        break  # ACK received, go to next packet. if not true, we will resend the chunk
+                except socket.timeout:
+                    print(f"Timeout, resending seq {seq_num}") #if the socket timeout triggers, we will resend the chunk
+            seq_num += 1
     # Send EOF marker
-    client_socket.sendto(b"EOF", (SERVER_IP, SERVER_PORT)) #we are done with the loop, so we transfered the file
+    client_socket.sendto(b"EOF", (SERVER_IP, SERVER_PORT))
     print(f"File '{filename}' sent successfully.")
     client_socket.close()
 
