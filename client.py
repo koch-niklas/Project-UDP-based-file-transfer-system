@@ -8,16 +8,18 @@ SERVER_IP = "127.0.0.1"
 SERVER_PORT = 5959
 BUFFER_SIZE = 4096
 
-def main():
+def GetFile():
     parser = argparse.ArgumentParser()
     parser.add_argument('--file', required=True)
-    arg = parser.parse_args()   #get "--file" argument
-
+    arg = parser.parse_args()   #get --file argument from caller
     file_path = arg.file
     file_path = os.path.abspath(os.path.expanduser(file_path))
     if not os.path.isfile(file_path):
         print("File not found.")
-    filename = os.path.basename(file_path)  #format filepath so that python that read it
+    return os.path.basename(file_path), file_path  #format filepath so that python that read it
+
+def main():
+    filename, file_path = GetFile()
 
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #open socket at hardcoded port
     # Send filename first
