@@ -6,13 +6,13 @@ BUFFER_SIZE = 4096
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #create UDP socket, AF_INET = ipv4, SOCK_DGRAM: UDP socket
 server_socket.bind((SERVER_IP, SERVER_PORT)) #send all UDP traffic arriving at this ip+port to my socket
-print(f"Server 2.1 listening on {SERVER_IP}:{SERVER_PORT}")
+print(f"Server 2.2 listening on {SERVER_IP}:{SERVER_PORT}")
 
 while True: #endless loop, always listening
     # Receive filename as first packet
-    data, _ = server_socket.recvfrom(BUFFER_SIZE) #recvfrom() waits for the first UDP packet. we specified buffer size
+    data, addr = server_socket.recvfrom(BUFFER_SIZE) #recvfrom() waits for the first UDP packet. we specified buffer size
     filename = data.decode()
-    print(f"Receiving file '{filename}'")
+    print(f"Receiving file '{filename}' from {addr}")
 
     expected_seq = 0 #used to keep track. ofc we start with 0 :)
     with open(filename, "wb") as f:
