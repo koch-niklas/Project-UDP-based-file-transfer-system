@@ -3,11 +3,13 @@
 import socket
 import os
 import argparse
+import random #to simulate packet loss
 
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 5959
 BUFFER_SIZE = 4096
 TIMEOUT = 0.5  # 500 milliseconds
+LOSS_PERCENT = 1 #1-5 for file transfer?
 
 def GetFile():
     parser = argparse.ArgumentParser()
@@ -35,9 +37,13 @@ def main():
                 break
             packet = f"{seq_num}|".encode() + chunk #the new packet not only includes the chunk(raw data) but starts with the sequence number. f234 for example, followed by the | which indicates the start of the chunk
             while True: #repeat indefinetely until the server acknowledges the receipt of the sequence packet
-                client_socket.sendto(packet, (SERVER_IP, SERVER_PORT))
+                if random.uniform(0,100) >= LOSS_PERCENT:
+                    client_socket.sendto(packet, (SERVER_IP, SERVER_PORT))
+                else:
+                    print(f"Simulating loss of packet {seq_num}") #if we hit the LOSS_PERCENT random number, we just dont transmit the chunk
                 try:
                     ack, _ = client_socket.recvfrom(BUFFER_SIZE) #wait for acknowledgement from server. recvfrom will wait maximum TIMEOUT seconds (what set set before)
+                    print(f"debug: {ack.decode()} from: {_} ")
                     if int(ack.decode()) == seq_num:
                         break  # ACK received, go to next packet. if not true, we will resend the chunk
                 except socket.timeout:
