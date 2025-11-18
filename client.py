@@ -4,6 +4,7 @@ import socket
 import os
 import argparse
 import random #to simulate packet loss
+import zlib #to let python handle checksum (crc32) calculation
 
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 5959
@@ -43,8 +44,9 @@ def main():
     while base < len(packets): #while we still have an unACKed packet
         while next_seq < base + window_size and next_seq < len(packets): #we are sending as many packets as the window size indicates AND as long as we didnt reach the last index. IF we reached the end of the sliding window (or the last packet index), we wait for ACKs
             seq, chunk = packets[next_seq] #reading the current packet from the packets array
-            packet = f"{seq}|".encode() + chunk #building our packets the same way as before
-
+            checksum = zlib.crc32(chunk) #letting zlib library handle the checksum creation
+            packet = f"{seq}|{checksum}|".encode() + chunk #building our packets the same way as before, now with checksum between sequence number and data chunk
+            print(f"sending crc: {checksum}")
             if random.uniform(0, 100) >= LOSS_PERCENT:
                 client_socket.sendto(packet, (SERVER_IP, SERVER_PORT))
             else:
