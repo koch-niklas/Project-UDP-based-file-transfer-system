@@ -7,13 +7,31 @@ BUFFER_SIZE = 4096
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #create UDP socket, AF_INET = ipv4, SOCK_DGRAM: UDP socket
 server_socket.bind((SERVER_IP, SERVER_PORT)) #send all UDP traffic arriving at this ip+port to my socket
-print(f"Server 3.0 listening on {SERVER_IP}:{SERVER_PORT}")
+print(f"Server 4.0 listening on {SERVER_IP}:{SERVER_PORT}")
 
 while True: #endless loop, always listening
-    # Receive filename as first packet
-    data, addr = server_socket.recvfrom(BUFFER_SIZE) #recvfrom() waits for the first UDP packet. we specified buffer size
-    filename = data.decode()
-    print(f"Receiving file '{filename}' from {addr}")
+    # Wait for handshake
+    data, addr = server_socket.recvfrom(BUFFER_SIZE)
+    handshake = data.decode()
+    if not handshake.startswith("HELO"):
+        print("Not a handshake")
+        continue
+    try:
+        _, filename, filesize, total_packets = handshake.split("|") #split message at the | 
+        filesize = int(filesize) #need to specify that its an integer
+        total_packets = int(total_packets)
+    except Exception:
+        print("Error during handshake!")
+        continue
+
+    #validate handshake data, we could also check for free disk space on the server
+    if filesize <= 0 or total_packets <= 0:
+        print("Invalid handshake")
+        continue
+    else:
+        print(f"Handshake done with client {addr}, receiving {filename} now...")
+        server_socket.sendto(b"HELO OK", addr)
+    #handshake done
 
     expected_seq = 0 #used to keep track. ofc we start with 0 :)
     with open(filename, "wb") as f:

@@ -26,11 +26,11 @@ def main():
     window_size = arg.WindowSize
     file_path = arg.file
     filename = GetFile(file_path)
+    filesize = os.path.getsize(file_path) #to send in the handshake
 
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #open socket at hardcoded port
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     client_socket.settimeout(TIMEOUT) #needed to break the loop below. without, we would get stuck on an infinite loop
-    # Send filename first
-    client_socket.sendto(filename.encode(), (SERVER_IP, SERVER_PORT))
+
     # Prepare packets
     packets = [] #array to store ALL packets in. we will fill it before transmission
     with open(file_path, "rb") as f: #same technique to read the chunks as before
@@ -38,15 +38,32 @@ def main():
         while chunk := f.read(BUFFER_SIZE):
             packets.append((seq, chunk)) #instead of transmitting the chunks, we are storing them in this array with the respective SEQ number
             seq += 1
+    
     base = 0 #this is the start of the sliding window. it will hold the last ACKed packet during transmission
     next_seq = 0 #used as the index of our packets[] array
 
+    handshake = f"HELO|{filename}|{filesize}|{len(packets)}" #create handshake package
+    client_socket.sendto(handshake.encode(), (SERVER_IP, SERVER_PORT)) #send handshake package to server
+
+    while True: #wait for the handshake response from server
+        try:
+            response, _ = client_socket.recvfrom(1000)
+            handshake = response.decode()
+            if handshake == "HELO OK":
+                print ("Handshake successful, starting file tranfer!")
+                break #break from the loop, go to the next one
+            else:
+                print("Handshake unsuccessful")
+                return #try loop until handshake is successful
+        except socket.timeout:
+            print("Handshake timed out, resending...")
+            client_socket.sendto(handshake.encode(), (SERVER_IP, SERVER_PORT)) #resending same handshake until server accepts
+            
     while base < len(packets): #while we still have an unACKed packet
         while next_seq < base + window_size and next_seq < len(packets): #we are sending as many packets as the window size indicates AND as long as we didnt reach the last index. IF we reached the end of the sliding window (or the last packet index), we wait for ACKs
             seq, chunk = packets[next_seq] #reading the current packet from the packets array
             checksum = zlib.crc32(chunk) #letting zlib library handle the checksum creation
             packet = f"{seq}|{checksum}|".encode() + chunk #building our packets the same way as before, now with checksum between sequence number and data chunk
-            print(f"sending crc: {checksum}")
             if random.uniform(0, 100) >= LOSS_PERCENT:
                 client_socket.sendto(packet, (SERVER_IP, SERVER_PORT))
             else:
