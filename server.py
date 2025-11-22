@@ -7,7 +7,7 @@ BUFFER_SIZE = 4096
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #create UDP socket, AF_INET = ipv4, SOCK_DGRAM: UDP socket
 server_socket.bind((SERVER_IP, SERVER_PORT)) #send all UDP traffic arriving at this ip+port to my socket
-print(f"Server 4.0 listening on {SERVER_IP}:{SERVER_PORT}")
+print(f"Server 5.0 listening on {SERVER_IP}:{SERVER_PORT}")
 
 while True: #endless loop, always listening
     # Wait for handshake
@@ -52,9 +52,11 @@ while True: #endless loop, always listening
                 ack = str(expected_seq).encode()
                 expected_seq += 1 # and now we expect the next seq
             else: #the received packet is not what we need/expect (packet loss) OR checksum is incorrect (corrupted packet)
-                print(f"Expected {expected_seq}, but received {seq_num}")
                 ack = str(expected_seq).encode()
             # send ACK
             server_socket.sendto(ack, addr)
-
-    print(f"File '{filename}' received successfully.")
+    #wait for final handshake:
+    data, addr = server_socket.recvfrom(BUFFER_SIZE)
+    handshake = data.decode()
+    if handshake == "BYE":
+        print(f"File '{filename}' received successfully from {addr}. BYE!")
