@@ -52,10 +52,10 @@ def perform_handshake(sock, filename, filesize, total_packets):
 
 
 def send_window(sock, packets, base, next_seq, window_size):
-    packets_set = 0
-    packets_lost = 0
+    packets_set = 0 #during this windows
+    packets_lost = 0 #during this window
 
-    while next_seq < base + window_size and next_seq < len(packets):
+    while next_seq < base + window_size and next_seq < len(packets): #while we still have unACKed packet in this window AND in the file
         seq, chunk = packets[next_seq] #reading the current packet from the packets array
         checksum = zlib.crc32(chunk) #letting zlib library handle the checksum creation
         packet = f"{seq}|{checksum}|".encode() + chunk #building our packets the same way as before, now with checksum between sequence number and data chunk
@@ -75,33 +75,34 @@ def receive_ack(sock, base):
         data, _ = sock.recvfrom(1024)
         ack = int(data.decode())
         if ack >= base:
-            return ack
-        return base
+            return ack #we move the window forward
+        return base #we move the window backward
     except socket.timeout:
         return None
 
 
 def send_file(sock, packets, window_size, filesize):
+    # some useful metrics:
     total_packets_sent = 0
     total_packets_lost = 0
     total_retransmissions = 0
 
     base = 0 #this is the start of the sliding window. it will hold the last ACKed packet during transmission
     next_seq = 0 #used as the index of our packets[] array
-    start_time = time.time()
+    start_time = time.time() #to calculate the duration
 
     while base < len(packets): #while we still have an unACKed packet
-        next_seq, sent, lost = send_window(sock, packets, base, next_seq, window_size)
-        total_packets_sent += sent
-        total_packets_lost += lost
+        next_seq, sent, lost = send_window(sock, packets, base, next_seq, window_size) #send the window of packets
+        total_packets_sent += sent #for metrics
+        total_packets_lost += lost #for metrics
 
-        ack = receive_ack(sock, base)
+        ack = receive_ack(sock, base) #determines if we can move the window forward
 
         if ack is None:
             next_seq = base # Reset next_seq to base to resend unacknowledged packets. this means we are sliding the window BACK to the unacknowledged packet and start again from there. base is the last ACKed packet
             total_retransmissions += 1
         else:
-            base = ack
+            base = ack + 1
 
     #at this point, we transfered the file, so send EOF marker
     sock.sendto(b"EOF", (SERVER_IP, SERVER_PORT))
@@ -110,6 +111,7 @@ def send_file(sock, packets, window_size, filesize):
     print(f"\nFile sent successfully.")
     print(f"Packets sent: {total_packets_sent}")
     print(f"Packets lost (simulated): {total_packets_lost}")
+    print(f"Window Size: {window_size}")
     print(f"Retransmissions: {total_retransmissions}")
     print(f"Transfer time: {duration:.2f}s")
     print(f"Throughput: {throughput/1024:.2f} KB/s")
@@ -117,18 +119,18 @@ def send_file(sock, packets, window_size, filesize):
 
 def main():
     args = parse_args()
-    file_path = os.path.abspath(args.file)
 
+    file_path = os.path.abspath(args.file)
     filename = os.path.basename(file_path)
     filesize = os.path.getsize(file_path)
 
-    packets = prepare_packets(file_path)
+    packets = prepare_packets(file_path) #packets holds all packets incl. sequence number
     sock = setup_socket()
 
     perform_handshake(sock, filename, filesize, len(packets))
     send_file(sock, packets, args.WindowSize, filesize)
 
-    sock.sendto(b"BYE", (SERVER_IP, SERVER_PORT))
+    sock.sendto(b"BYE", (SERVER_IP, SERVER_PORT)) #closing handshake
     sock.close()
 
 
