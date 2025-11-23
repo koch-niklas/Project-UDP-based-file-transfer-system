@@ -26,7 +26,7 @@ def LogConsole(message): #replace any print command with this one, so we have co
 def SetupServer():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #create UDP socket, AF_INET = ipv4, SOCK_DGRAM: UDP socket
     server_socket.bind((SERVER_IP, SERVER_PORT)) #send all UDP traffic arriving at this ip+port to my socket
-    LogConsole(f"Server 7.1 listening on {SERVER_IP}:{SERVER_PORT}")
+    LogConsole(f"Server 7.2 listening on {SERVER_IP}:{SERVER_PORT}")
     return server_socket
 
 
