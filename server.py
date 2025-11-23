@@ -1,6 +1,7 @@
 import socket
 import zlib #for checksum implementation
 import os
+import logging #to let python handle logging to file
 
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 5959
@@ -10,24 +11,36 @@ BUFFER_SIZE = 4096
 clients = {}
 
 
+logging.basicConfig(
+    filename = "server.log",
+    level=logging.INFO,
+    format = "%(asctime)s [Server] %(levelname)s: %(message)s"
+)
+
+
+def LogConsole(message): #replace any print command with this one, so we have console output + the same line in the logfile
+    print(message)
+    logging.info(message)
+
+
 def SetupServer():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #create UDP socket, AF_INET = ipv4, SOCK_DGRAM: UDP socket
     server_socket.bind((SERVER_IP, SERVER_PORT)) #send all UDP traffic arriving at this ip+port to my socket
-    print(f"Server 7.0 listening on {SERVER_IP}:{SERVER_PORT}")
+    LogConsole(f"Server 7.1 listening on {SERVER_IP}:{SERVER_PORT}")
     return server_socket
 
 
 def HandleHandshake(data, addr, server_socket):
     handshake = data.decode()
     if not handshake.startswith("HELO"):
-        print(f"[{addr[1]}] Not a handshake")
+        LogConsole(f"[{addr[1]}] Not a handshake")
         return
     try:
         _, filename, filesize, total_packets = data.decode().split("|") #split message at the | 
         filesize = int(filesize)  #need to specify that its an integer
         total_packets = int(total_packets)
-    except Exception:
-        print(f"Error during handshake with [{addr[1]}]") #addr[1] holds the port. address at index 0 will always be localhost, so not interesting
+    except Exception as exception:
+        LogConsole(f"Error during handshake with [{addr[1]}]: {exception}") #addr[1] holds the port. address at index 0 will always be localhost, so not interesting
         return
 
     # Create a new, unique filename as we cannot overwrite the same file
@@ -46,12 +59,12 @@ def HandleHandshake(data, addr, server_socket):
     }
 
     server_socket.sendto(b"HELO OK", addr)
-    print(f"[{addr[1]}] Handshake accepted for file '{unique_FileName}'")
+    LogConsole(f"[{addr[1]}] Handshake accepted for file '{unique_FileName}'")
 
 
 def HandlePacket(packet, addr, server_socket):
     if addr not in clients: #should not happen
-        print(f"[{addr}] Packet from unknown client, ignoring")
+        LogConsole(f"[{addr[1]}] Packet from unknown client, ignoring")
         return
 
     client = clients[addr] #look up the specific information about the client who sent this packet
@@ -59,7 +72,7 @@ def HandlePacket(packet, addr, server_socket):
     if packet == b"EOF": #if the EOF string is received, we stop the writing of the file
         client["file"].close() #this holds f, our file writing operation
         client["finished"] = True #update this boolean
-        print(f"[{addr[1]}] File '{client['filename']}' transfer complete")
+        LogConsole(f"[{addr[1]}] File '{client['filename']}' transfer complete")
         return
 
     try:
@@ -67,8 +80,8 @@ def HandlePacket(packet, addr, server_socket):
         seq_num = int(seq.decode())
         received_checksum = int(checksum.decode())
         actual_checksum = zlib.crc32(content) #calculate the checksum in the same way the client does
-    except:
-        print(f"[{addr[1]}] Malformed packet ignored")
+    except Exception:
+        LogConsole(f"[{addr[1]}] Malformed packet ignored")
         # resend expected_seq
         ack = str(client["expected_seq"]).encode()
         server_socket.sendto(ack, addr) #speed up the re-sending
@@ -76,7 +89,11 @@ def HandlePacket(packet, addr, server_socket):
 
     # Check sequence number and checksum (Data order and integrity)
     if seq_num == client["expected_seq"] and received_checksum == actual_checksum:
-        client["file"].write(content) #this holds f, our file writing operation
+        try: #moving process into this try expression in order to catch and log any error
+            client["file"].write(content) #this holds f, our file writing operation
+        except Exception as exception:
+            LogConsole(f"Error during file writing: {exception}")
+            return
         ack = str(client["expected_seq"]).encode()
         client["expected_seq"] += 1 # and now we expect the next seq
     else: #the received packet is not what we need/expect (packet loss) OR checksum is incorrect (corrupted packet)
@@ -87,8 +104,7 @@ def HandlePacket(packet, addr, server_socket):
 
 def HandleGoodbye(data, addr):
     if addr in clients and data.decode() == "BYE":
-        print(f"[{addr[0]}] Client disconnected cleanly")
-        #insert file finished counter here
+        LogConsole(f"[{addr[0]}] Client disconnected cleanly")
         del clients[addr]
 
 
@@ -99,7 +115,7 @@ def main():
         try:
             data, addr = server_socket.recvfrom(BUFFER_SIZE + 100) #packet arrives into this main loop. we will then decide what to do with it
         except KeyboardInterrupt:
-            print("Shutting down server...")
+            LogConsole("Shutting down server...")
             break
 
         #determine in main loop what needs to be done with the packet. scenarios: Client is unknown -> answer handshake and start filetransfer OR client is known -> file transfer either sti8ll needs handling, or is finished

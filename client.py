@@ -6,12 +6,25 @@ import argparse
 import random #to simulate packet loss
 import zlib #to let python handle checksum (crc32) calculation
 import time #to calculate transmision duration
+import logging #to let python handle logging to file
 
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 5959
 BUFFER_SIZE = 4096
 TIMEOUT = 0.5 #500 milliseconds
 LOSS_PERCENT = 1 #1-5 for file transfer?
+
+
+logging.basicConfig(
+    filename = "client.log",
+    level=logging.INFO,
+    format = "%(asctime)s [Client] %(levelname)s: %(message)s"
+)
+
+
+def LogConsole(message): #replace any print command with this one, so we have console output + the same line in the logfile
+    print(message)
+    logging.info(message)
 
 
 def parse_args():
@@ -29,11 +42,16 @@ def setup_socket():
 
 def prepare_packets(file_path):
     packets = [] #array to store ALL packets in. we will fill it before transmission
-    with open(file_path, "rb") as f: #same technique to read the chunks as before
-        seq = 0
-        while chunk := f.read(BUFFER_SIZE):
-            packets.append((seq, chunk)) #instead of transmitting the chunks, we are storing them in this array with the respective SEQ number
-            seq += 1
+    try: #moving process into this try expression in order to catch and log any error
+        with open(file_path, "rb") as f: #same technique to read the chunks as before
+            seq = 0
+            while chunk := f.read(BUFFER_SIZE):
+                packets.append((seq, chunk)) #instead of transmitting the chunks, we are storing them in this array with the respective SEQ number
+                seq += 1
+    except Exception as exception:
+        LogConsole(f"Failed to read {file_path}: {exception}")
+        raise
+
     return packets
 
 
@@ -45,10 +63,12 @@ def perform_handshake(sock, filename, filesize, total_packets):
         try:
             response, _ = sock.recvfrom(1000) #wait for the handshake response from server
             if response.decode() == "HELO OK":
-                print("Handshake successful, starting file transfer!")
+                LogConsole("Handshake successful, starting file transfer!")
                 return #break from the loop
         except socket.timeout:
-            print("Handshake timed out, resending...")
+            LogConsole("Handshake timed out, resending...")
+            raise
+            
 
 
 def send_window(sock, packets, base, next_seq, window_size):
@@ -63,7 +83,7 @@ def send_window(sock, packets, base, next_seq, window_size):
             sock.sendto(packet, (SERVER_IP, SERVER_PORT))
             packets_set += 1
         else:
-            print(f"Simulated loss of packet {seq}")
+            LogConsole(f"Simulated loss of packet {seq}")
             packets_lost += 1
         next_seq += 1 #we move on to the next packet, regardless if the server acknowledged the packet or not! (or in this case, if we sent the packet or not)
 
@@ -108,13 +128,13 @@ def send_file(sock, packets, window_size, filesize):
     sock.sendto(b"EOF", (SERVER_IP, SERVER_PORT))
     duration = time.time() - start_time
     throughput = filesize / duration
-    print(f"\nFile sent successfully.")
-    print(f"Packets sent: {total_packets_sent}")
-    print(f"Packets lost (simulated): {total_packets_lost}")
-    print(f"Window Size: {window_size}")
-    print(f"Retransmissions: {total_retransmissions}")
-    print(f"Transfer time: {duration:.2f}s")
-    print(f"Throughput: {throughput/1024:.2f} KB/s")
+    LogConsole(f"\nFile sent successfully.")
+    LogConsole(f"Packets sent: {total_packets_sent}")
+    LogConsole(f"Packets lost (simulated): {total_packets_lost}")
+    LogConsole(f"Window Size: {window_size}")
+    LogConsole(f"Retransmissions: {total_retransmissions}")
+    LogConsole(f"Transfer time: {duration:.2f}s")
+    LogConsole(f"Throughput: {throughput/1024:.2f} KB/s")
 
 
 def main():
@@ -124,14 +144,20 @@ def main():
     filename = os.path.basename(file_path)
     filesize = os.path.getsize(file_path)
 
+    LogConsole(f"Starting transfer of {filename}. Size: {filesize} bytes")
+
     packets = prepare_packets(file_path) #packets holds all packets incl. sequence number
     sock = setup_socket()
 
-    perform_handshake(sock, filename, filesize, len(packets))
-    send_file(sock, packets, args.WindowSize, filesize)
-
-    sock.sendto(b"BYE", (SERVER_IP, SERVER_PORT)) #closing handshake
-    sock.close()
+    try: #moving process into this try expression in order to catch and log any error
+        perform_handshake(sock, filename, filesize, len(packets))
+        send_file(sock, packets, args.WindowSize, filesize)
+        sock.sendto(b"BYE", (SERVER_IP, SERVER_PORT)) #closing handshake
+    except Exception as exception:
+        LogConsole(f"Error, closing! {exception}")
+    finally:
+        sock.close()
+        LogConsole("Client socket closed")
 
 
 if __name__ == "__main__":
