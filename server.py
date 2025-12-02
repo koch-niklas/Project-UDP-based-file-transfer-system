@@ -26,7 +26,7 @@ def LogConsole(message): #replace any print command with this one, so we have co
 def SetupServer():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #create UDP socket, AF_INET = ipv4, SOCK_DGRAM: UDP socket
     server_socket.bind((SERVER_IP, SERVER_PORT)) #send all UDP traffic arriving at this ip+port to my socket
-    LogConsole(f"Server 7.2 listening on {SERVER_IP}:{SERVER_PORT}")
+    LogConsole(f"Server 7.3 listening on {SERVER_IP}:{SERVER_PORT}")
     return server_socket
 
 
@@ -82,23 +82,23 @@ def HandlePacket(packet, addr, server_socket):
         actual_checksum = zlib.crc32(content) #calculate the checksum in the same way the client does
     except Exception:
         LogConsole(f"[{addr[1]}] Malformed packet ignored")
-        # resend expected_seq
-        ack = str(client["expected_seq"]).encode()
+        last_in_order = client["expected_seq"] - 1 #ACK last correctly received packet
+        ack = str(last_in_order).encode()
         server_socket.sendto(ack, addr) #speed up the re-sending
         return
 
-    # Check sequence number and checksum (Data order and integrity)
+    last_in_order = client["expected_seq"] - 1 #last correctly received packet at this point
+
     if seq_num == client["expected_seq"] and received_checksum == actual_checksum:
         try: #moving process into this try expression in order to catch and log any error
             client["file"].write(content) #this holds f, our file writing operation
         except Exception as exception:
             LogConsole(f"Error during file writing: {exception}")
             return
-        ack = str(client["expected_seq"]).encode()
         client["expected_seq"] += 1 # and now we expect the next seq
-    else: #the received packet is not what we need/expect (packet loss) OR checksum is incorrect (corrupted packet)
-        ack = str(client["expected_seq"]).encode()
-    # send ACK
+        last_in_order = seq_num  # update last correctly received packet
+
+    ack = str(last_in_order).encode() #the received packet is not what we need/expect (packet loss) OR checksum is incorrect (corrupted packet)
     server_socket.sendto(ack, addr)
 
 

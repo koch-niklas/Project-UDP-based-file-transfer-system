@@ -78,14 +78,14 @@ def perform_handshake(sock, filename, filesize, total_packets):
                 return #break from the loop
         except socket.timeout:
             LogConsole("Handshake timed out, resending...")
-            raise
+            continue #before, we "raised" but actually we want to continue the loop
             
 
 def send_window(sock, packets, base, next_seq, window_size, packetloss):
     packets_set = 0 #during this windows
     packets_lost = 0 #during this window
 
-    while next_seq < base + window_size and next_seq < len(packets): #while we still have unACKed packet in this window AND in the file
+    while next_seq < len(packets) and next_seq < base + window_size: #while we still have unACKed packet in this window AND in the file
         seq, chunk = packets[next_seq] #reading the current packet from the packets array
         checksum = zlib.crc32(chunk) #letting zlib library handle the checksum creation
         packet = f"{seq}|{checksum}|".encode() + chunk #building our packets the same way as before, now with checksum between sequence number and data chunk
@@ -100,41 +100,55 @@ def send_window(sock, packets, base, next_seq, window_size, packetloss):
     return next_seq, packets_set, packets_lost
 
 
-def receive_ack(sock, base):
-    try:
-        data, _ = sock.recvfrom(1024)
-        ack = int(data.decode())
-        if ack >= base:
-            return ack #we move the window forward
-        return base #we move the window backward
-    except socket.timeout:
-        return None
+def receive_ack(sock, base, timeout): #improve ACK mechanism to actually reset the base correctly
+    sock.settimeout(timeout)
+    new_base = base
+
+    while True:
+        try:
+            data, _ = sock.recvfrom(65535)
+            msg = data.decode(errors="ignore").strip()
+
+            if "|" in msg: #in case a "data" packet falls in here
+                continue
+
+            if not msg.isdigit(): #in case seq 0 does not get acked, we do not want negative numbers
+                continue
+
+            ack = int(msg)
+            if ack >= new_base:
+                new_base = ack + 1 #same logic as before
+
+        except (socket.timeout, BlockingIOError):
+            break
+
+    return new_base
 
 
-def send_file(sock, packets, window_size, filesize, packetloss):
+
+def send_file(sock, packets, window_size, filesize, packetloss, timeout):
     # some useful metrics:
     total_packets_sent = 0
     total_packets_lost = 0
     total_retransmissions = 0
 
     base = 0 #this is the start of the sliding window. it will hold the last ACKed packet during transmission
-    next_seq = 0 #used as the index of our packets[] array
     start_time = time.time() #to calculate the duration
 
     while base < len(packets): #while we still have an unACKed packet
+        base = receive_ack(sock, base, 0) #receive any ACK from before
+        next_seq = base #set the sliding window base
         next_seq, sent, lost = send_window(sock, packets, base, next_seq, window_size, packetloss) #send the window of packets
         total_packets_sent += sent #for metrics
         total_packets_lost += lost #for metrics
 
-        ack = receive_ack(sock, base) #determines if we can move the window forward
+        old_base = base
+        base = receive_ack(sock, base, timeout) #wait for ACKs again
 
-        if ack is None:
-            next_seq = base # Reset next_seq to base to resend unacknowledged packets. this means we are sliding the window BACK to the unacknowledged packet and start again from there. base is the last ACKed packet
+        if base == old_base: #no progress, retransmit packet
             total_retransmissions += 1
-        else:
-            base = ack + 1
-        #print progress bar
         WriteProgress(base, len(packets))
+
     #at this point, we transfered the file, so send EOF marker
     WriteProgress(len(packets), len(packets)) #fill the progress bar completely
     print() #print a new line
@@ -168,7 +182,7 @@ def main():
 
     try: #moving process into this try expression in order to catch and log any error
         perform_handshake(sock, filename, filesize, len(packets))
-        send_file(sock, packets, args.WindowSize, filesize, PacketLoss)
+        send_file(sock, packets, args.WindowSize, filesize, PacketLoss, timeout)
         sock.sendto(b"BYE", (SERVER_IP, SERVER_PORT)) #closing handshake
     except Exception as exception:
         LogConsole(f"Error, closing! {exception}")

@@ -1,7 +1,9 @@
 @echo off
-set FILE="C:\temp\Chapter_4_v8.2.pptx"
+set FILE=C:\temp\file.pptx
+set CMD=python "C:\Users\Niklas\OneDrive - University of Luxembourg\Local Programs\Networks\Project - Iterations\7.3 ACKS + multi client fixed (ready to push)\client.py" --File "%FILE%" --WindowSize 50 --PacketLoss 5 --Timeout 0.01
 
-start cmd /k python client.py --FILE "%FILE%" --WindowSize 3 --PacketLoss 1 --Timeout 0.5
-start cmd /k python client.py --File "%FILE%" --WindowSize 4 --PacketLoss 1 --Timeout 0.5
-start cmd /k python client.py --File "%FILE%" --WindowSize 5 --PacketLoss 1 --Timeout 0.5
-start cmd /k python client.py --File "%FILE%" --WindowSize 6 --PacketLoss 1 --Timeout 0.5
+wt -M ^
+    cmd /k "timeout /t 1 >nul & %CMD%" ^
+    ; split-pane -H cmd /k "timeout /t 1 >nul & %CMD%" ^
+    ; split-pane -V cmd /k "timeout /t 1 >nul & %CMD%" ^
+    ; focus-pane -t 0 ; split-pane -V cmd /k "timeout /t 1 >nul & %CMD%"
